@@ -10,6 +10,10 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+//PA1 addition
+int             kwait2(uint64, uint64);
+
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -165,7 +169,7 @@ void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
 pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
-int             copyout(pagetable_t, uint64, uint64, char *, uint64);
+int             copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len);
 int             copyin(pagetable_t, uint64, char *, uint64, uint64);
 int             copyinstr(pagetable_t, uint64, char *, uint64, uint64);
 int             ismapped(pagetable_t, uint64);

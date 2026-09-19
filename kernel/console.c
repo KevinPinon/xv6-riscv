@@ -57,7 +57,7 @@ struct {
 
 //
 // user write() system calls to the console go here.
-// uses sleep() and UART interrupts.
+// uses () and UART interrupts.
 //
 int
 consolewrite(int user_src, uint64 src, int n)

@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "pstat.h"
 
 struct cpu cpus[NCPU];
 
@@ -25,6 +26,72 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+
+
+// Wait for a child process to exit and return its exit status AND rusage (cputime).
+// addr is a user virtual address to store the exit status.
+// rusage_addr is a user virtual address to store struct rusage.
+int
+kwait2(uint64 addr, uint64 rusage_addr)
+{
+  struct proc *pp;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p){
+        // make sure child isn't still in exit() or swtch().
+        acquire(&pp->lock);
+
+        havekids = 1;
+        if(pp->state == ZOMBIE){
+          // Found one.
+          pid = pp->pid;
+          if(addr != 0 && copyout(p->pagetable, p->sz, addr, (char *)&pp->xstate, sizeof(pp->xstate)) < 0) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          // Copy out struct rusage (cputime) to user space
+          if(rusage_addr != 0){
+            struct rusage ru;
+            ru.cputime = pp->cputime;
+            if(copyout(p->pagetable, p->sz, rusage_addr, (char *)&ru, sizeof(ru)) < 0) {
+              release(&pp->lock);
+              release(&wait_lock);
+              return -1;
+            }
+          }
+
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&pp->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;
+    }
+    
+    // Wait for a child to exit.
+    sleep_prepare(p);
+    release(&wait_lock);
+    sleep();
+    acquire(&wait_lock);
+  }
+}
+
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -124,6 +191,9 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  
+  //Initialize  process CPU time counter
+  p->cputime = 0;
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
@@ -410,8 +480,8 @@ kwait(uint64 addr)
       return -1;
     }
 
-    // Wait for a child to exit.
-    sleep_prepare(p); //DOC: wait-sleep
+    /// Wait for a child to exit.
+    sleep_prepare(p);
     release(&wait_lock);
     sleep();
     acquire(&wait_lock);
@@ -450,6 +520,9 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+	//printk("[scheduler] CPU %d running PID %d (%s)\n", cpuid(), p->pid, p->name);
+
         swtch(&c->context, &p->context);
 
         // Don't re-enable interrupts on release.
@@ -556,7 +629,7 @@ sleep_prepare(void *chan)
   release(&p->lock);
 }
 
-// Put the thread to sleep.  Assumes sleep_prepare() was called before.
+// Put the thread to sleep. Assumes sleep_prepare() was called before.
 // If the channel registered by sleep_prepare() has been woken up in
 // the meantime, do not go to sleep, and instead return immediately.
 void
