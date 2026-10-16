@@ -1,3 +1,6 @@
+#ifndef _PROC_H_
+#define _PROC_H_
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -83,14 +86,17 @@ struct proc {
   struct spinlock lock;
 
   // p->lock must be held when using these:
-  enum procstate state; // Process state
-  void *chan;           // If non-zero, sleeping on chan
-  int killed;           // If non-zero, have been killed
-  int xstate;           // Exit status to be returned to parent's wait
-  int pid;              // Process ID
+  enum procstate state;        // Process state
+  void *chan;                  // If non-zero, sleeping on chan
+  int killed;                  // If non-zero, have been killed
+  int xstate;                  // Exit status to be returned to parent's wait
+  int pid;                     // Process ID
+
+  int priority;                // ADDED for Task 2 (Range: 0 to 49)
+  uint readytime;              // ADDED for Task 3 (Ticks when process became RUNNABLE)
 
   // wait_lock must be held when using this:
-  struct proc *parent; // Parent process
+  struct proc *parent;        // Parent process
 
   // these are private to the process, so p->lock need not be held.
   uint cputime;
@@ -103,3 +109,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+#endif //_PROC_H_

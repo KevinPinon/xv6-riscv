@@ -163,16 +163,42 @@ main(void)
       cmd++;
     if (*cmd == '\n') // is a blank command
       continue;
+
+    // --- Built-in cd command ---
     if (cmd[0] == 'c' && cmd[1] == 'd' && cmd[2] == ' ') {
       // Chdir must be called by the parent, not the child.
       cmd[strlen(cmd) - 1] = 0; // chop \n
       if (chdir(cmd + 3) < 0)
         fprintf(2, "cannot cd %s\n", cmd + 3);
-    } else {
-      if (fork1() == 0)
-        runcmd(parsecmd(cmd));
-      wait(0);
+      continue;
     }
+
+    //EXTRA CREDIT: Built-in getpriority command
+    if (cmd[0] == 'g' && cmd[1] == 'e' && cmd[2] == 't' &&
+        cmd[3] == 'p' && cmd[4] == 'r' && cmd[5] == 'i' &&
+        cmd[6] == 'o' && cmd[7] == 'r' && cmd[8] == 'i' &&
+        cmd[9] == 't' && cmd[10] == 'y' &&
+        (cmd[11] == ' ' || cmd[11] == '\n' || cmd[11] == '\0')) {
+      printf("%d\n", getpriority());
+      continue;
+    }
+
+    //EXTRA CREDIT: Built-in setpriority command
+    if (cmd[0] == 's' && cmd[1] == 'e' && cmd[2] == 't' &&
+        cmd[3] == 'p' && cmd[4] == 'r' && cmd[5] == 'i' &&
+        cmd[6] == 'o' && cmd[7] == 'r' && cmd[8] == 'i' &&
+        cmd[9] == 't' && cmd[10] == 'y' && cmd[11] == ' ') {
+      int p = atoi(cmd + 12);
+      if (setpriority(p) < 0) {
+        fprintf(2, "setpriority: invalid priority (0-49)\n");
+      }
+      continue;
+    }
+
+    // Regular commands executed via fork
+    if (fork1() == 0)
+      runcmd(parsecmd(cmd));
+    wait(0);
   }
   exit(0);
 }

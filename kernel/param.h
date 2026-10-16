@@ -12,3 +12,9 @@
 #define FSSIZE      2000              // size of file system in blocks
 #define MAXPATH     128               // maximum file path name
 #define USERSTACK   1                 // user stack pages
+#define SCHEDULER   SCHED_PRIO
+#define SCHED_PR    0
+#define SCHED_PRIO  1
+#define SCHED_AGED  2
+#define SCHEDULE    SCHED_AGED
+#define MAXEFFPRIO  99

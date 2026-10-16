@@ -6,7 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
-
+#include "proc.h"
+#include "pstat.h"
 
 uint64
 sys_wait2(void)
@@ -122,4 +123,63 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+
+extern struct proc proc[NPROC];
+
+uint64
+sys_getprocs(void)
+{
+  uint64 st_addr;
+  struct proc *p;
+  struct pstat st;
+  int count = 0;
+
+  // Retrieve user buffer address argument 0
+  argaddr(0, &st_addr);
+
+  // Iterate through global process table
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      st.pid = p->pid;
+      st.state = p->state;
+      st.size = p->sz;
+      st.ppid = p->parent ? p->parent->pid : 0;
+      st.priority = p->priority;   // Task 2
+      st.readytime = p->readytime; // Task 3
+      safestrcpy(st.name, p->name, sizeof(p->name));
+
+      // Correct copyout argument order:
+      // (pagetable, dstva, src_ptr, len)
+      if(copyout(myproc()->pagetable, myproc()->sz, st_addr + count * sizeof(struct pstat), (char *)&st, sizeof(struct pstat)) < 0) {
+        release(&p->lock);
+        return -1;
+      }
+      count++;
+    }
+    release(&p->lock);
+  }
+  return count;
+}
+
+uint64
+sys_getpriority(void)
+{
+  return myproc()->priority; // Task 2
+}
+
+uint64
+sys_setpriority(void)
+{
+  int prio;
+  argint(0, &prio);
+  if(prio < 0 || prio > 49)
+    return -1;
+
+  acquire(&myproc()->lock);
+  myproc()->priority = prio;
+  release(&myproc()->lock);
+  return 0;
 }

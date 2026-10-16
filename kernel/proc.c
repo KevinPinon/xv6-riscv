@@ -7,6 +7,8 @@
 #include "defs.h"
 #include "pstat.h"
 
+
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -191,9 +193,10 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  
-  //Initialize  process CPU time counter
-  p->cputime = 0;
+
+  p->priority = 0;          // Default priority
+  p->cputime = 0;           // Initialize process CPU time counter
+  p->readytime = 0;         // Initialize readytime
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
@@ -218,6 +221,7 @@ found:
 
   return p;
 }
+
 
 // free a proc structure and the data hanging from it,
 // including user pages.
@@ -296,7 +300,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
-
+  p->readytime = ticks;
   release(&p->lock);
 }
 
@@ -345,6 +349,8 @@ kfork(void)
   }
   np->sz = p->sz;
 
+  np->priority = p->priority;
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -369,6 +375,7 @@ kfork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  np->readytime = ticks;
   release(&np->lock);
 
   return pid;
@@ -511,17 +518,17 @@ scheduler(void)
     intr_on();
     intr_off();
 
+#if SCHEDULER == SCHED_RR
+    // Original Round-Robin Scheduler
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
+        // Switch to chosen process. It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-
-	//printk("[scheduler] CPU %d running PID %d (%s)\n", cpuid(), p->pid, p->name);
 
         swtch(&c->context, &p->context);
 
@@ -539,8 +546,62 @@ scheduler(void)
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }
+
+#else
+    // Priority / Aging Scheduler (Tasks 4 & 5)
+    struct proc *highest_p = 0;
+    int highest_prio = -1;
+
+    // Pass 1: Find the RUNNABLE process with the highest effective priority
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        int eff_prio = p->priority;
+
+#if SCHEDULER == SCHED_AGED
+        // Task 5: Aging policy — calculate effective priority based on wait time
+        int age = ticks - p->readytime;
+        eff_prio = p->priority + age;
+        if (eff_prio > MAXEFFPRIO)
+          eff_prio = MAXEFFPRIO;
+#endif
+
+        if (eff_prio > highest_prio) {
+          if (highest_p != 0) {
+            release(&highest_p->lock); // Release lock of previous candidate
+          }
+          highest_prio = eff_prio;
+          highest_p = p; // Keep lock held for chosen process
+        } else {
+          release(&p->lock); // Not higher priority, release lock
+        }
+      } else {
+        release(&p->lock); // Not RUNNABLE, release lock
+      }
+    }
+
+    // Pass 2: Switch to chosen process if one was found
+    if (highest_p != 0) {
+      highest_p->state = RUNNING;
+      c->proc = highest_p;
+
+      swtch(&c->context, &highest_p->context);
+
+      // Don't re-enable interrupts on release.
+      mycpu()->intena = 0;
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+      release(&highest_p->lock);
+    } else {
+      // nothing to run; stop running on this core until an interrupt.
+      asm volatile("wfi");
+    }
+#endif
   }
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -662,6 +723,7 @@ wakeup(void *chan)
       // go to sleep, also set it back to RUNNING.
       if (p->state == SLEEPING) {
         p->state = RUNNABLE;
+        p->readytime = ticks;
       }
     }
     release(&p->lock);
@@ -683,6 +745,7 @@ kkill(int pid)
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
+        p->readytime = ticks;
       }
       release(&p->lock);
       return 0;
